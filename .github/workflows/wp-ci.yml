@@ -47,32 +47,46 @@ jobs:
           fi
           echo "security guard: clean"
 
+      - name: Cache Playground downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.wordpress-playground
+          key: wp-playground-cache-cli355-v1
+          restore-keys: |
+            wp-playground-cache-
+
       - name: Boot WordPress Playground (mounted theme + blueprint)
         run: |
           npx --yes "$WP_PLAYGROUND_CLI" server \
+            --verbosity=debug \
             --mount="$GITHUB_WORKSPACE/wp-content/themes/lab-theme:/wordpress/wp-content/themes/lab-theme" \
             --blueprint="$GITHUB_WORKSPACE/blueprint.json" \
             --port=9400 &> /tmp/playground.log &
-          echo "Waiting for Playground on :9400 ..."
-          timeout 300 bash -c 'until curl -s -o /dev/null http://127.0.0.1:9400/; do sleep 2; done'
-          echo "Playground is up"
+          echo "Waiting for boot to complete (Ready! in log; the port binds BEFORE boot finishes) ..."
+          timeout 480 bash -c 'until grep -q "Ready!" /tmp/playground.log 2>/dev/null; do sleep 3; done' \
+            || { echo "FAIL: boot did not complete within 8 minutes"; tail -80 /tmp/playground.log; exit 1; }
+          echo "Boot complete. Log tail:"
+          tail -6 /tmp/playground.log
 
-      - name: Smoke tests (HTTP, not just curl)
+      - name: Smoke tests (HTTP, after boot completion)
         run: |
-          echo "Waiting for the lab-theme marker (blueprint may still be running) ..."
-          timeout 180 bash -c 'until curl -s http://127.0.0.1:9400/ | grep -q "wp-lab-smoke-marker"; do sleep 2; done' \
-            || { echo "FAIL: smoke marker never appeared"; tail -100 /tmp/playground.log; exit 1; }
-
-          code=$(curl -s -o /tmp/home.html -w "%{http_code}" http://127.0.0.1:9400/)
-          test "$code" = "200" || { echo "FAIL: homepage HTTP $code"; exit 1; }
+          echo "=== post-boot probes ==="
+          echo "Ready lines: $(grep -c 'Ready!' /tmp/playground.log || true)"
+          code=$(curl -sL -o /tmp/home.html -w "%{http_code}" http://127.0.0.1:9400/)
+          echo "homepage HTTP=$code"
+          echo "--- homepage head ---"
+          head -40 /tmp/home.html || true
+          test "$code" = "200" || { echo "FAIL: homepage HTTP $code"; tail -120 /tmp/playground.log; exit 1; }
+          grep -q "wp-lab-smoke-marker" /tmp/home.html || { echo "FAIL: lab-theme smoke marker missing - theme did not render"; exit 1; }
           grep -q "WP Lab Site" /tmp/home.html || { echo "FAIL: blueprint site options not applied"; exit 1; }
 
           grep -q "STYLESHEET=lab-theme" /tmp/playground.log \
             && echo "blueprint assertion logged: lab-theme active" \
             || echo "note: runPHP output not captured in log (non-fatal)"
 
-          page_code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:9400/?pagename=lab-page")
+          page_code=$(curl -sL -o /dev/null -w "%{http_code}" "http://127.0.0.1:9400/?pagename=lab-page")
           echo "lab-page HTTP=$page_code"
+          test "$page_code" = "200" || { echo "FAIL: wp-cli page check HTTP $page_code"; exit 1; }
           echo "smoke: OK"
 
       - name: Screenshot homepage (best effort)
