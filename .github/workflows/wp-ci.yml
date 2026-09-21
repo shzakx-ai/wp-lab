@@ -81,7 +81,17 @@ jobs:
         run: |
           echo "=== post-boot probes ==="
           echo "Ready lines: $(grep -c 'Ready!' /tmp/playground.log || true)"
-          code=$(curl -sL -o /tmp/home.html -w "%{http_code}" http://127.0.0.1:9400/)
+          # The auto-login mu-plugin answers 302 + Set-Cookie to every request that
+          # does not carry the playground_auto_login_already_happened cookie; curl
+          # only survives that dance when it keeps a cookie jar. Without one it
+          # loops until curl's redirect cap (exit 47).
+          JAR=/tmp/wp-lab-cookies.txt
+          touch "$JAR"
+          echo "--- raw response #1 (headers only, no redirects followed) ---"
+          curl -sS -D - -o /dev/null --max-time 15 http://127.0.0.1:9400/ | head -12 || true
+          echo "--- raw response #2 (headers only, no redirects followed) ---"
+          curl -sS -D - -o /dev/null --max-time 15 http://127.0.0.1:9400/ | head -12 || true
+          code=$(curl -sSL -c "$JAR" -b "$JAR" --max-redirs 10 -o /tmp/home.html -w "%{http_code}" http://127.0.0.1:9400/)
           echo "homepage HTTP=$code"
           echo "--- homepage head ---"
           head -40 /tmp/home.html || true
@@ -93,9 +103,9 @@ jobs:
             && echo "blueprint assertion logged: lab-theme active" \
             || echo "note: runPHP output not captured in log (non-fatal)"
 
-          page_code=$(curl -sL -o /dev/null -w "%{http_code}" "http://127.0.0.1:9400/?pagename=lab-page")
+          page_code=$(curl -sSL -c "$JAR" -b "$JAR" --max-redirs 10 -o /dev/null -w "%{http_code}" "http://127.0.0.1:9400/?pagename=lab-page")
           echo "lab-page HTTP=$page_code"
-          test "$page_code" = "200" || { echo "FAIL: wp-cli page check HTTP $page_code"; exit 1; }
+          test "$page_code" = "200" || { echo "FAIL: page check HTTP $page_code"; exit 1; }
           echo "smoke: OK"
 
       - name: Screenshot homepage (best effort)
