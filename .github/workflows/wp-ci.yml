@@ -63,8 +63,17 @@ jobs:
             --blueprint="$GITHUB_WORKSPACE/blueprint.json" \
             --port=9400 &> /tmp/playground.log &
           echo "Waiting for boot to complete (Ready! in log; the port binds BEFORE boot finishes) ..."
-          timeout 480 bash -c 'until grep -q "Ready!" /tmp/playground.log 2>/dev/null; do sleep 3; done' \
-            || { echo "FAIL: boot did not complete within 8 minutes"; tail -80 /tmp/playground.log; exit 1; }
+          rc=0
+          timeout 480 bash -c '
+            until grep -q "Ready!" /tmp/playground.log 2>/dev/null; do
+              if grep -qE "ResourceDownloadError|Error when executing the blueprint" /tmp/playground.log 2>/dev/null; then exit 2; fi
+              sleep 3
+            done' || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "FAIL: boot did not complete (rc=$rc)"
+            tail -80 /tmp/playground.log
+            exit 1
+          fi
           echo "Boot complete. Log tail:"
           tail -6 /tmp/playground.log
 
