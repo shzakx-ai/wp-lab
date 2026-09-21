@@ -1,0 +1,20 @@
+{
+  "$schema": "https://playground.wordpress.net/blueprint-schema.json",
+  "meta": {
+    "title": "WP Lab — CI blueprint",
+    "author": "shzakx-ai",
+    "description": "Boots WordPress, activates the mounted lab-theme, asserts the active stylesheet, and creates a test page."
+  },
+  "landingPage": "/",
+  "preferredVersions": { "php": "8.3", "wp": "latest" },
+  "steps": [
+    { "step": "login" },
+    { "step": "setSiteOptions", "options": { "blogname": "WP Lab Site", "blogdescription": "Off-server WordPress lab" } },
+    { "step": "activateTheme", "themeFolderName": "lab-theme" },
+    {
+      "step": "runPHP",
+      "code": "<?php require '/wordpress/wp-load.php'; $t = wp_get_theme(); $stylesheet = get_stylesheet(); echo 'WP_LAB_THEME=' . $t->get('Name') . '|STYLESHEET=' . $stylesheet; if ($stylesheet !== 'lab-theme') { throw new Exception('lab-theme is not the active stylesheet, got: ' . $stylesheet); }"
+    },
+    { "step": "wp-cli", "command": "wp post create --post_type=page --post_title='Lab Page' --post_name='lab-page' --post_status=publish" }
+  ]
+}

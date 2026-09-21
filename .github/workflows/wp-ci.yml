@@ -1,0 +1,108 @@
+name: WP Lab CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+concurrency:
+  group: wp-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WP_PLAYGROUND_CLI: "@wp-playground/cli@3.1.55"
+
+jobs:
+  build-test:
+    name: Lint + Boot + Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+
+      - name: PHP lint
+        run: find wp-content -name '*.php' -print0 | xargs -0 -n1 -P4 php -l
+
+      - name: Security guard (dangerous functions)
+        run: |
+          if grep -rnE '\b(eval|shell_exec|passthru|proc_open|popen)[[:space:]]*\(|base64_decode[[:space:]]*\(' wp-content --include='*.php'; then
+            echo "FAIL: dangerous PHP function found"
+            exit 1
+          fi
+          echo "security guard: clean"
+
+      - name: Boot WordPress Playground (mounted theme + blueprint)
+        run: |
+          npx --yes "$WP_PLAYGROUND_CLI" server \
+            --mount="$GITHUB_WORKSPACE/wp-content/themes/lab-theme:/wordpress/wp-content/themes/lab-theme" \
+            --blueprint="$GITHUB_WORKSPACE/blueprint.json" \
+            --port=9400 &> /tmp/playground.log &
+          echo "Waiting for Playground on :9400 ..."
+          timeout 300 bash -c 'until curl -s -o /dev/null http://127.0.0.1:9400/; do sleep 2; done'
+          echo "Playground is up"
+
+      - name: Smoke tests (HTTP, not just curl)
+        run: |
+          echo "Waiting for the lab-theme marker (blueprint may still be running) ..."
+          timeout 180 bash -c 'until curl -s http://127.0.0.1:9400/ | grep -q "wp-lab-smoke-marker"; do sleep 2; done' \
+            || { echo "FAIL: smoke marker never appeared"; tail -100 /tmp/playground.log; exit 1; }
+
+          code=$(curl -s -o /tmp/home.html -w "%{http_code}" http://127.0.0.1:9400/)
+          test "$code" = "200" || { echo "FAIL: homepage HTTP $code"; exit 1; }
+          grep -q "WP Lab Site" /tmp/home.html || { echo "FAIL: blueprint site options not applied"; exit 1; }
+
+          grep -q "STYLESHEET=lab-theme" /tmp/playground.log \
+            && echo "blueprint assertion logged: lab-theme active" \
+            || echo "note: runPHP output not captured in log (non-fatal)"
+
+          page_code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:9400/?pagename=lab-page")
+          echo "lab-page HTTP=$page_code"
+          echo "smoke: OK"
+
+      - name: Screenshot homepage (best effort)
+        continue-on-error: true
+        run: |
+          mkdir -p artifacts
+          npm install --no-save --silent playwright
+          npx playwright install chromium || npx playwright install --with-deps chromium
+          npx playwright screenshot --viewport-size="1280,900" --full-page --wait-for-timeout=1500 http://127.0.0.1:9400/ artifacts/home.png
+          ls -la artifacts
+
+      - name: Package artifacts
+        run: |
+          mkdir -p artifacts
+          (cd wp-content/themes && zip -qr "$GITHUB_WORKSPACE/artifacts/lab-theme.zip" lab-theme)
+          cp /tmp/playground.log artifacts/playground.log || true
+          ls -la artifacts
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp-lab-artifacts
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Playground log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playground-log
+          path: /tmp/playground.log
+          if-no-files-found: ignore

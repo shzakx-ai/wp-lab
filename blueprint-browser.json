@@ -1,0 +1,26 @@
+{
+  "$schema": "https://playground.wordpress.net/blueprint-schema.json",
+  "meta": {
+    "title": "WP Lab — browser preview",
+    "author": "shzakx-ai",
+    "description": "Installs lab-theme straight from the wp-lab GitHub repo and opens it in the browser playground."
+  },
+  "landingPage": "/",
+  "preferredVersions": { "php": "8.3", "wp": "latest" },
+  "steps": [
+    { "step": "login" },
+    { "step": "setSiteOptions", "options": { "blogname": "WP Lab Site", "blogdescription": "Off-server WordPress lab" } },
+    {
+      "step": "installTheme",
+      "themeData": {
+        "resource": "git:directory",
+        "url": "https://github.com/shzakx-ai/wp-lab",
+        "ref": "main",
+        "refType": "branch",
+        "path": "wp-content/themes/lab-theme"
+      },
+      "options": { "activate": true }
+    },
+    { "step": "wp-cli", "command": "wp post create --post_type=page --post_title='Lab Page' --post_name='lab-page' --post_status=publish" }
+  ]
+}

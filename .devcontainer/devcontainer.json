@@ -1,0 +1,12 @@
+{
+  "name": "wp-lab",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postStartCommand": "nohup bash scripts/dev.sh > /tmp/wp-lab.log 2>&1 &",
+  "forwardPorts": [9400],
+  "portsAttributes": {
+    "9400": {
+      "label": "WordPress (Playground)",
+      "onAutoForward": "notify"
+    }
+  }
+}
