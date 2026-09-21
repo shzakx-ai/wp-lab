@@ -46,6 +46,8 @@ WordPress Studio (مجاني، Mac/Win/Linux): https://developer.wordpress.com/s
 2. **حارس أمان**: يمنع دوال PHP الخطرة (eval/base64_decode/shell_exec/passthru/proc_open/popen)
 3. **إقلاع WordPress كامل** عبر Playground CLI: PHP WASM + SQLite + مَنت القالب + تنفيذ blueprint.json
 4. **فحوص Smoke عبر HTTP** (وليس curl شكلي):
+   - ينتظر الجاهزية الحقيقية (سطر `Ready!` في السجل) — المنفذ يُربط قبل انتهاء الإقلاع فيردّ 302/502 أثناءه
+   - يفحص بكوكيز (cookie jar): بلجن auto-login الرسمي يردّ `302 + Set-Cookie` على كل طلب لا يحمل كوكي `playground_auto_login_already_happened` — أي فحص بلا cookie jar يدور في حلقة لا نهائية (curl exit 47)
    - الرئيسية HTTP 200
    - علامة القالب `wp-lab-smoke-marker` ظاهرة → القالب فعلاً هو الذي يرندر
    - اسم الموقع من الـ blueprint ظاهر → الخطوات نُفذت فعلاً
@@ -65,6 +67,12 @@ WordPress Studio (مجاني، Mac/Win/Linux): https://developer.wordpress.com/s
 npx skills add WordPress/agent-skills --skill wp-playground blueprint wp-plugin-development wp-block-development wp-performance
 ```
 - مصادر المسار الكامل: https://github.com/WordPress/agent-skills
+
+## دروس تشغيلية (Playground CLI v3) — مُختبرة فعلياً في CI
+- **لا تستخدم خطوة `wp-cli` في CI**: تنزّل `wp-cli.phar` من الشبكة وقت التنفيذ ويفشل التنزيل على عدّاءات GitHub (`ResourceDownloadError`) فيتوقف الإقلاع. البديل: خطوة `runPHP` مع دوال WordPress مباشرة (`wp_insert_post` ...).
+- **انتظر `Ready!` لا المنفذ**: الـ CLI يبدأ الاستماع على المنفذ بعد ~15 ثانية بينما الإقلاع وخطوات الـ blueprint لا تزال جارية — أي فحص سطحي يمرّ كذباً.
+- **افحص دائماً بـ cookie jar** (`curl -c jar -b jar`) لأن auto-login يعيد التوجيه حتى تُحفظ الكوكيز.
+- **مجلد كاش الـ CLI**: `~/.wordpress-playground` — نُخزّنه بين تشغيلات CI لتسريع الإقلاع.
 
 ## البنية
 ```
